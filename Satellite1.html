@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fish Detection System</title>
+  <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
+  <script src="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.js"></script>
+  <script src="https://static.elfsight.com/platform/platform.js" async></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+  <style>
+    #map { width: 100%; height: 500px; }
+    body { font-family: Arial, sans-serif; margin: 0; }
+    .button-container {
+      position: absolute;
+      bottom: 20px;
+      z-index: 1000;
+    }
+    .locate-container { left: 20px; }
+    .recenter-container { right: 20px; }
+    .map-button {
+      background: white;
+      border: none;
+      padding: 10px;
+      border-radius: 50%;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+      cursor: pointer;
+    }
+    .map-button img { width: 24px; height: 24px; }
+    #directions {
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: white;
+      padding: 10px;
+      border-radius: 5px;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <h2 style="text-align: center;">Fish Detection System</h2>
+  <div id="map"></div>
+  <div id="directions">Start navigation to see directions</div>
+  <div class="elfsight-app-a55d9b4c-4790-4775-9e0d-66d770209238" data-elfsight-app-lazy></div>
+
+  <div class="button-container locate-container">
+    <button id="locate-button" class="map-button">
+      <img src="https://cdn-icons-png.flaticon.com/512/684/684908.png" alt="Locate">
+    </button>
+  </div>
+
+  <div class="button-container recenter-container">
+    <button id="recenter-button" class="map-button">
+      <img src="https://cdn-icons-png.flaticon.com/512/25/25694.png" alt="Recenter">
+    </button>
+  </div>
+
+  <script>
+    var map = L.map('map').setView([20.5937, 78.9629], 5);
+    var userMarker, heatLayer, routingControl;
+    var userLat, userLon;
+    var fishMarkers = [];
+    var isNavigating = false;
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 12,
+      minZoom: 5,
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    var locationIcon = L.icon({ iconUrl: 'https://upload.wikimedia.org/wikipedia/commons/e/ec/RedDot.svg', iconSize: [20, 20] });
+    var fishIcon = L.icon({ iconUrl: 'https://maps.google.com/mapfiles/ms/icons/green-dot.png', iconSize: [20, 20] });
+
+    document.getElementById("locate-button").addEventListener("click", startTracking);
+    document.getElementById("recenter-button").addEventListener("click", recenterMap);
+
+    function startTracking() {
+      if (navigator.geolocation) {
+        navigator.geolocation.watchPosition(updatePosition, showError, { enableHighAccuracy: true });
+      } else {
+        alert("Geolocation is not supported by this browser.");
+      }
+    }
+
+    function updatePosition(position) {
+      userLat = position.coords.latitude;
+      userLon = position.coords.longitude;
+
+      if (!userMarker) {
+        userMarker = L.marker([userLat, userLon], { icon: locationIcon }).addTo(map).bindPopup("Your current location!");
+      } else {
+        userMarker.setLatLng([userLat, userLon]);
+      }
+
+      updateFishData(userLat, userLon);
+      if (isNavigating) updateNavigation();
+      map.setView([userLat, userLon], map.getZoom());
+    }
+
+    function updateFishData(lat, lon) {
+      fishMarkers.forEach(marker => map.removeLayer(marker));
+      fishMarkers = [];
+      
+      var fishLocations = [[lat + 0.02, lon + 0.02], [lat - 0.02, lon - 0.02], [lat + 0.03, lon - 0.03]];
+      fishLocations.forEach(coord => {
+        let marker = L.marker(coord, { icon: fishIcon }).addTo(map).on('click', function () {
+          navigateToFish(coord[0], coord[1]);
+        });
+        fishMarkers.push(marker);
+      });
+    }
+
+    function navigateToFish(lat, lon) {
+      isNavigating = true;
+      updateNavigation(lat, lon);
+    }
+
+    function updateNavigation(fishLat, fishLon) {
+      if (routingControl) map.removeControl(routingControl);
+      routingControl = L.Routing.control({
+        waypoints: [L.latLng(userLat, userLon), L.latLng(fishLat, fishLon)],
+        routeWhileDragging: true,
+        createMarker: function () { return null; },
+        lineOptions: { addWaypoints: false },
+        show: false
+      }).on('routesfound', function(e) {
+        let instructions = e.routes[0].instructions.map(instr => instr.text);
+        followInstructions(instructions);
+      }).addTo(map);
+    }
+
+    function followInstructions(instructions) {
+      let stepIndex = 0;
+      function showNextStep() {
+        if (stepIndex < instructions.length) {
+          document.getElementById('directions').innerText = instructions[stepIndex];
+          stepIndex++;
+        } else {
+          document.getElementById('directions').innerText = "You have reached your destination!";
+        }
+      }
+      showNextStep();
+    }
+
+    function recenterMap() {
+      if (userLat !== undefined && userLon !== undefined) {
+        map.setView([userLat, userLon], 10);
+      } else {
+        alert("Location not detected yet. Please allow location access.");
+      }
+    }
+
+    function showError(error) {
+      alert("Geolocation error: " + error.message);
+    }
+  </script>
+</body>
+</html>
